@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import random
 from typing import Any
 
@@ -7,215 +8,136 @@ from textual.app import ComposeResult
 from textual.timer import Timer
 from textual.widgets import Static
 
-from vibe.cli.textual_ui.widgets.braille_renderer import render_braille
+# The flag is drawn on a half-block canvas: every terminal cell holds two
+# vertical pixels, rendered as "▀" with the top pixel as foreground and the
+# bottom pixel as background. WIDTH x ROWS is therefore the cell footprint
+# pinned by .banner-chat / .petit-chat in app.tcss.
+WIDTH = 12
+ROWS = 3
+SUB_HEIGHT = ROWS * 2
 
-WIDTH = 22
-HEIGHT = 12
-FRAME_INTERVAL_S = 0.16
+RED = (0xB2, 0x22, 0x34)
+WHITE = (0xFF, 0xFF, 0xFF)
+BLUE = (0x3C, 0x3B, 0x6E)
+
+# Six pixel rows only fit three stripes; one-pixel stripes dissolve as soon as
+# the wave displaces a column.
+STRIPE_HEIGHT = 2
+# Canton: top-left corner, with a star field punched out of it. 5/12 of the
+# width and 3/6 of the height, close to the real 2/5 by 7/13.
+CANTON_WIDTH = 5
+CANTON_HEIGHT = 3
+# Two offset rows of stars; a third would leave the canton more white than
+# blue at this size.
+STAR_PIXELS = frozenset({(0, 0), (2, 0), (4, 0), (1, 1), (3, 1)})
+
+FRAME_INTERVAL_S = 0.12
+FRAMES_PER_CYCLE = 24
+WAVELENGTH = 9.0
+AMPLITUDE = 1.4
+SHADE_MIN = 0.62
 CYCLE_DELAY_MIN_S = 5.0
 CYCLE_DELAY_MAX_S = 20.0
-STARTING_DOTS = [
-    set[int](),
-    {6, 7, 15, 19},
-    {5, 8, 14, 16, 18, 20},
-    {4, 6, 7, 14, 17, 20},
-    {3, 5, 10, 11, 12, 14, 20},
-    {3, 5, 9, 13, 14, 16, 18, 20},
-    {3, 5, 8, 13, 17, 21},
-    {3, 6, 7, 8, 11, 14, 15, 16, 18, 19, 20},
-    {4, 5, 8, 12, 17, 19},
-    {6, 7, 8, 13, 18, 20},
-    {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20},
-    set[int](),
-]
-QUEUE_RIGHT_TO_MID = {
-    "remove": {1j + 6, 1j + 7, 2j + 8, 3j + 4, 3j + 6, 3j + 7, 8j + 4, 8j + 5},
-    "add": {1j + 4, 2j + 3, 3j + 3, 3j + 5, 7j + 5, 8j + 3, 9j + 4, 9j + 5},
-}
-QUEUE_MID_TO_RIGHT = {
-    "remove": QUEUE_RIGHT_TO_MID["add"],
-    "add": QUEUE_RIGHT_TO_MID["remove"],
-}
-QUEUE_MID_TO_LEFT = {
-    "remove": {1j + 4, 2j + 5, 3j + 3, 3j + 5, 7j + 5, 8j + 3, 9j + 4, 9j + 5},
-    "add": {1j + 1, 1j + 2, 2j, 3j + 1, 3j + 2, 3j + 4, 8j + 4, 8j + 5},
-}
-QUEUE_LEFT_TO_MID = {
-    "remove": QUEUE_MID_TO_LEFT["add"],
-    "add": QUEUE_MID_TO_LEFT["remove"],
-}
-WAIT = {"remove": set[int](), "add": set[int]()}
-HEAD_RIGHT = {"remove": {5j + 16, 5j + 18, 6j + 17}, "add": {5j + 17, 5j + 19, 6j + 18}}
-HEAD_LEFT = {"remove": {5j + 17, 5j + 19, 6j + 18}, "add": {5j + 16, 5j + 18, 6j + 17}}
-HEAD_DOWN = {
-    "remove": {
-        1j + 15,
-        1j + 19,
-        2j + 14,
-        2j + 16,
-        2j + 18,
-        2j + 20,
-        3j + 17,
-        5j + 17,
-        5j + 19,
-        6j + 13,
-        6j + 18,
-        6j + 21,
-        7j + 14,
-        7j + 15,
-        7j + 16,
-        7j + 19,
-        7j + 20,
-    },
-    "add": {
-        2j + 15,
-        2j + 19,
-        3j + 16,
-        3j + 18,
-        4j + 17,
-        6j + 14,
-        6j + 17,
-        6j + 19,
-        6j + 20,
-        7j + 13,
-        7j + 18,
-        7j + 21,
-        8j + 14,
-        8j + 15,
-        8j + 16,
-        8j + 18,
-        8j + 20,
-    },
-}
-HEAD_UP = {
-    "remove": {
-        2j + 15,
-        2j + 19,
-        3j + 16,
-        3j + 18,
-        4j + 17,
-        6j + 14,
-        6j + 17,
-        6j + 19,
-        6j + 20,
-        7j + 13,
-        7j + 18,
-        7j + 21,
-        8j + 14,
-        8j + 15,
-        8j + 16,
-        8j + 18,
-        8j + 20,
-    },
-    "add": {
-        1j + 15,
-        1j + 19,
-        2j + 14,
-        2j + 16,
-        2j + 18,
-        2j + 20,
-        3j + 17,
-        5j + 17,
-        5j + 19,
-        6j + 13,
-        6j + 18,
-        6j + 21,
-        7j + 14,
-        7j + 15,
-        7j + 16,
-        7j + 18,
-        7j + 19,
-        7j + 20,
-    },
-}
-BLINK_EYES_HEAD_HIGH = [
-    {"remove": {5j + 16, 5j + 18}, "add": set[int]()},
-    {"remove": set[int](), "add": {5j + 16, 5j + 18}},
-]
-BLINK_EYES_HEAD_LOW = [
-    {"remove": {6j + 17, 6j + 19}, "add": set[int]()},
-    {"remove": set[int](), "add": {6j + 17, 6j + 19}},
-]
-TRANSITIONS = [
-    *BLINK_EYES_HEAD_HIGH,
-    WAIT,
-    QUEUE_RIGHT_TO_MID,
-    HEAD_RIGHT,
-    WAIT,
-    QUEUE_MID_TO_LEFT,
-    WAIT,
-    QUEUE_LEFT_TO_MID,
-    WAIT,
-    HEAD_DOWN,
-    WAIT,
-    QUEUE_MID_TO_RIGHT,
-    *BLINK_EYES_HEAD_LOW,
-    WAIT,
-    QUEUE_RIGHT_TO_MID,
-    WAIT,
-    QUEUE_MID_TO_LEFT,
-    WAIT,
-    HEAD_UP,
-    WAIT,
-    QUEUE_LEFT_TO_MID,
-    HEAD_LEFT,
-    WAIT,
-    QUEUE_MID_TO_RIGHT,
-]
-# cf render_braille() docstring for coordinates convention
-
-# Transition indices reached right after a head settles into a direction, with
-# the eyes open. The cat may rest at any of these, on top of the end of cycle.
-EYES_OPEN_PAUSE_FRAMES = frozenset({5, 11, 21, 24})
 MID_CYCLE_PAUSE_CHANCE = 0.25
+# Frames where the ripple crest sits off to one side, so a pause there still
+# leaves the flag looking held by the wind rather than snapped flat.
+PAUSE_FRAMES = frozenset({6, 12, 18})
+
+_TWO_PI = 2 * math.pi
+
+
+def _pixel_color(x: int, y: int) -> tuple[int, int, int]:
+    """Flag color of the pixel at (x, y) on the undisturbed canvas."""
+    if x < CANTON_WIDTH and y < CANTON_HEIGHT:
+        return WHITE if (x, y) in STAR_PIXELS else BLUE
+    return RED if (y // STRIPE_HEIGHT) % 2 == 0 else WHITE
+
+
+def _shade(color: tuple[int, int, int], factor: float) -> str:
+    r, g, b = (min(255, int(channel * factor)) for channel in color)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _displacement(x: int, phase: float) -> float:
+    """Vertical displacement of column x, in pixels.
+
+    A flag is nailed down at the hoist, so the swing grows towards the fly
+    edge. The ramp starts past the canton, which keeps a star from rounding
+    off the grid and reading as a glitch.
+    """
+    ramp = max(0.0, x - (CANTON_WIDTH - 1)) / (WIDTH - CANTON_WIDTH)
+    return AMPLITUDE * ramp * math.sin(_TWO_PI * x / WAVELENGTH - phase)
+
+
+def _sample(x: int, y: int, offset: float) -> tuple[int, int, int]:
+    """Color at (x, y) once column x is displaced vertically by `offset`."""
+    source_y = min(SUB_HEIGHT - 1, max(0, round(y - offset)))
+    return _pixel_color(x, source_y)
+
+
+def render_flag(phase: float) -> str:
+    """Render one frame of the waving flag as Rich markup.
+
+    The wave travels along x: each column is displaced vertically by a sine of
+    its position, and lit by the same sine so the folds pick up shadow.
+    """
+    lines = []
+    for row in range(ROWS):
+        cells = []
+        for x in range(WIDTH):
+            angle = _TWO_PI * x / WAVELENGTH - phase
+            offset = _displacement(x, phase)
+            light = SHADE_MIN + (1 - SHADE_MIN) * (0.5 + 0.5 * math.cos(angle))
+            top = _shade(_sample(x, row * 2, offset), light)
+            bottom = _shade(_sample(x, row * 2 + 1, offset), light)
+            cells.append(f"[{top} on {bottom}]▀[/]")
+        lines.append("".join(cells))
+    return "\n".join(lines)
 
 
 class PetitChat(Static):
+    """The animated banner mascot: a waving American flag."""
+
     def __init__(self, animate: bool = True, **kwargs: Any) -> None:
         classes = kwargs.pop("classes", None)
         merged_classes = "banner-chat" if classes is None else f"banner-chat {classes}"
         super().__init__(**kwargs, classes=merged_classes)
-        self._dots = {1j * y + x for y, row in enumerate(STARTING_DOTS) for x in row}
-        self._transition_index = 0
+        self._frame = 0
         self._do_animate = animate
         self._freeze_requested = False
         self._timer: Timer | None = None
         self._resume_frame: int | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static(render_braille(self._dots, WIDTH, HEIGHT), classes="petit-chat")
+        yield Static(render_flag(self._phase()), classes="petit-chat")
 
     def on_mount(self) -> None:
         self._inner = self.query_one(".petit-chat", Static)
         if self._do_animate:
-            self._timer = self.set_interval(
-                FRAME_INTERVAL_S, self._apply_next_transition
-            )
+            self._timer = self.set_interval(FRAME_INTERVAL_S, self._advance_frame)
 
     def freeze_animation(self) -> None:
         self._freeze_requested = True
 
-    def _apply_next_transition(self) -> None:
-        if self._freeze_requested and self._transition_index == 0:
+    def _phase(self) -> float:
+        return _TWO_PI * self._frame / FRAMES_PER_CYCLE
+
+    def _advance_frame(self) -> None:
+        if self._freeze_requested and self._frame == 0:
             if self._timer:
                 self._timer.stop()
             self._timer = None
             return
 
-        transition = TRANSITIONS[self._transition_index]
-        self._dots -= transition["remove"]
-        self._dots |= transition["add"]
-        self._transition_index = (self._transition_index + 1) % len(TRANSITIONS)
-        # render_braille always emits the full WIDTH x HEIGHT grid, so frames
-        # never change size.
-        self._inner.update(render_braille(self._dots, WIDTH, HEIGHT), layout=False)
+        self._frame = (self._frame + 1) % FRAMES_PER_CYCLE
+        # Every frame is the same WIDTH x ROWS grid, so skip the relayout.
+        self._inner.update(render_flag(self._phase()), layout=False)
 
         if not self._may_stop():
             return
 
-        if self._transition_index == 0 or (
-            self._transition_index in EYES_OPEN_PAUSE_FRAMES
-            and random.random() < MID_CYCLE_PAUSE_CHANCE
+        if self._frame == 0 or (
+            self._frame in PAUSE_FRAMES and random.random() < MID_CYCLE_PAUSE_CHANCE
         ):
             self._pause_between_cycles()
 
@@ -224,7 +146,7 @@ class PetitChat(Static):
         # before considering any new stop.
         if self._resume_frame is None:
             return True
-        if self._transition_index == self._resume_frame:
+        if self._frame == self._resume_frame:
             self._resume_frame = None
             return True
         return False
@@ -232,7 +154,7 @@ class PetitChat(Static):
     def _pause_between_cycles(self) -> None:
         if self._timer:
             self._timer.stop()
-        self._resume_frame = self._transition_index
+        self._resume_frame = self._frame
         delay = random.uniform(CYCLE_DELAY_MIN_S, CYCLE_DELAY_MAX_S)
         self._timer = self.set_timer(delay, self._resume_animation)
 
@@ -240,4 +162,4 @@ class PetitChat(Static):
         if self._freeze_requested:
             self._timer = None
             return
-        self._timer = self.set_interval(FRAME_INTERVAL_S, self._apply_next_transition)
+        self._timer = self.set_interval(FRAME_INTERVAL_S, self._advance_frame)

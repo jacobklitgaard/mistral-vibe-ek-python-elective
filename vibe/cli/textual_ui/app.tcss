@@ -1430,9 +1430,9 @@ NarratorStatus {
 }
 
 .banner-chat {
-    /* Pinned so the parent never renders the braille grid just to size it.
-       Braille output is a constant 3 rows (ceil(HEIGHT/4), HEIGHT=12) by
-       11 cols (ceil(WIDTH/2), WIDTH=22); see petit_chat.py / braille_renderer.py. */
+    /* Pinned so the parent never renders the flag just to size it.
+       Flag output is a constant ROWS=3 rows by WIDTH=12 cols of half-block
+       cells; see petit_chat.py. */
     width: 12;
     height: 3;
 }
