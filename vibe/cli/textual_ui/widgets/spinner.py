@@ -41,16 +41,11 @@ class Spinner(ABC):
 
 class BrailleSpinner(Spinner):
     FRAMES: ClassVar[tuple[str, ...]] = (
-        "⠋",
-        "⠙",
-        "⠹",
-        "⠸",
-        "⠼",
-        "⠴",
-        "⠦",
-        "⠧",
-        "⠇",
-        "⠏",
+        " ⠐ ",
+        "⠐⠤⠐",
+        " ⠤ ",
+        "⠐⠘⠐",
+        "⠠⠤⠠",
     )
 
 
