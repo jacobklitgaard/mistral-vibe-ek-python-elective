@@ -11,7 +11,10 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import time
 from typing import TYPE_CHECKING
+
+from rich.progress import Progress
 
 from vibe import __version__
 
@@ -175,6 +178,15 @@ def parse_arguments() -> argparse.Namespace:
         metavar="SESSION_ID",
         help="Resume a session. Without SESSION_ID, shows an interactive picker.",
     )
+
+    parser.add_argument(
+        "--countdown",
+        type=int,
+        metavar="N",
+        default=0,
+        help="Count down from N seconds before starting the session.",
+    )
+
     return parser.parse_args()
 
 
@@ -270,6 +282,14 @@ def main() -> None:
 
     args = parse_arguments()
     worktree_session: PreparedWorktree | None = None
+
+    if args.countdown > 0:
+
+        with Progress() as progress:
+            task = progress.add_task("[cyan]Starter om lidt...", total=args.countdown)
+            for _ in range(args.countdown):
+                time.sleep(1)
+                progress.update(task, advance=1)
 
     from rich import print as rprint
 
